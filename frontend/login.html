@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Experiment Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles/main.css">
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card glass-card">
+      <div class="login-logo">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="48" rx="12" fill="#DDE6ED"/>
+          <path d="M24 12C24 12 14 18 14 28C14 32.4183 17.5817 36 22 36H26C30.4183 36 34 32.4183 34 28C34 18 24 12 24 12Z" stroke="#2F3D46" stroke-width="2" fill="none"/>
+          <circle cx="24" cy="26" r="4" fill="#2F3D46"/>
+          <path d="M20 20H28" stroke="#2F3D46" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <h1>Experiment Platform</h1>
+        <p>Startup Experiment Lifecycle Management</p>
+      </div>
+
+      <form id="loginForm" class="form">
+        <div class="form-group">
+          <label class="form-label" for="email">Email</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            class="form-input"
+            placeholder="Enter your email"
+            required
+            autocomplete="email"
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            class="form-input"
+            placeholder="Enter your password"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <div id="errorMessage" class="alert alert-error" style="display: none;"></div>
+
+        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn" style="width: 100%;">
+          Sign In
+        </button>
+      </form>
+
+      <div style="margin-top: var(--spacing-xl); text-align: center;">
+        <p style="font-size: 0.875rem; color: var(--text-muted);">
+          Need an account? Contact your administrator for an invitation.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/scripts/api.js"></script>
+  <script>
+    // Check if already logged in
+    API.checkAuth().then(user => {
+      if (user) {
+        window.location.href = '/';
+      }
+    });
+
+    const loginForm = document.getElementById('loginForm');
+    const errorMessage = document.getElementById('errorMessage');
+    const submitBtn = document.getElementById('submitBtn');
+
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      // Hide previous error
+      errorMessage.style.display = 'none';
+
+      // Get form data
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      // Show loading
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner"></span> Signing in...';
+
+      try {
+        const response = await API.auth.login(email, password);
+        window.location.href = '/';
+      } catch (error) {
+        errorMessage.textContent = error.message || 'Login failed. Please check your credentials.';
+        errorMessage.style.display = 'flex';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign In';
+      }
+    });
+  </script>
+</body>
+</html>
