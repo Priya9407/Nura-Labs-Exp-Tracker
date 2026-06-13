@@ -8,6 +8,13 @@ export function formatDate(dateStr) {
   });
 }
 
+export function addDaysToDate(dateStr, days) {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
 export function formatDateTime(dateStr) {
   if (!dateStr) return 'N/A';
   const date = new Date(dateStr);
@@ -44,9 +51,13 @@ export function formatRelativeTime(dateStr) {
 }
 
 export function getPhaseDisplay(phase) {
+  if (!phase) return 'Unknown';
   const displays = {
     IDEA: 'Idea',
     BUILDING: 'Building',
+    TESTING: 'Testing',
+    DECISION: 'Decision',
+    COMPLETED: 'Completed',
     WAITING_FOR_TEST: 'Waiting for Test',
     USER_TESTING: 'User Testing',
     DECISION_PENDING: 'Decision Pending',
@@ -78,6 +89,9 @@ export function getPhaseColor(phase) {
   const colors = {
     IDEA: 'var(--phase-idea)',
     BUILDING: 'var(--phase-building)',
+    TESTING: 'var(--phase-testing)',
+    DECISION: 'var(--phase-decision)',
+    COMPLETED: 'var(--phase-finished)',
     WAITING_FOR_TEST: 'var(--phase-waiting)',
     USER_TESTING: 'var(--phase-testing)',
     DECISION_PENDING: 'var(--phase-decision)',

@@ -1,132 +1,117 @@
+"""
+Observations Routes - Day-based tracking system.
+
+Observations are stored inline in the experiment document.
+"""
 from flask import Blueprint, request, jsonify, g
 from middleware.auth import require_auth
 from middleware.roles import check_ownership
 from middleware.rate_limit import rate_limit_default
 from models.experiment import (
     get_experiment_by_uuid,
-    add_observation,
-    get_observations as get_exp_observations
+    submit_observation
 )
-from utils.helpers import sanitize_response, get_current_timestamp
-from utils.validators import validate_required_fields
+from utils.helpers import sanitize_response
 
 observations_bp = Blueprint('observations', __name__, url_prefix='/api/experiments')
 
-@observations_bp.route('/<uuid>/observations', methods=['POST'])
-@require_auth
-@rate_limit_default
-def create_observation(uuid):
-    """Add observation to experiment."""
-    data = request.get_json()
-
-    if not data:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'INVALID_REQUEST',
-                'message': 'Request body required'
-            }
-        }), 400
-
-    # Validate content
-    valid, error = validate_required_fields(data, ['content'])
-    if not valid:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'MISSING_FIELDS',
-                'message': error
-            }
-        }), 400
-
-    content = data.get('content', '').strip()
-    if len(content) < 5:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'CONTENT_TOO_SHORT',
-                'message': 'Observation content must be at least 5 characters'
-            }
-        }), 400
-
-    # Get experiment
-    experiment = get_experiment_by_uuid(uuid)
-    if not experiment:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'NOT_FOUND',
-                'message': 'Experiment not found'
-            }
-        }), 404
-
-    # Check if experiment is active
-    if experiment.get('status') not in ['ACTIVE', 'COMPLETED']:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'EXPERIMENT_INACTIVE',
-                'message': 'Cannot add observations to inactive experiment'
-            }
-        }), 400
-
-    # Get user
-    user = getattr(g, 'user', {})
-    user_uuid = user.get('uuid')
-
-    # Add observation
-    metrics = data.get('metrics', {})
-    observation = add_observation(uuid, content, user_uuid, metrics)
-
-    if not observation:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'CREATE_FAILED',
-                'message': 'Failed to add observation'
-            }
-        }), 500
-
-    return jsonify({
-        'success': True,
-        'observation': observation
-    }), 201
 
 @observations_bp.route('/<uuid>/observations', methods=['GET'])
 @require_auth
-def list_observations(uuid):
-    """Get all observations for experiment."""
-    # Get experiment
+def get_observations(uuid):
+    """Get all observations for an experiment."""
     experiment = get_experiment_by_uuid(uuid)
     if not experiment:
         return jsonify({
             'success': False,
-            'error': {
-                'code': 'NOT_FOUND',
-                'message': 'Experiment not found'
-            }
+            'error': {'code': 'NOT_FOUND', 'message': 'Experiment not found'}
         }), 404
 
-    observations = get_exp_observations(uuid)
-    if observations is None:
-        observations = []
-
-    # Sort by created_at desc
-    observations.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-
-    # Enrich with user info
-    from models.user import get_user_by_uuid
-    enriched_observations = []
-    for obs in observations:
-        user = get_user_by_uuid(obs.get('created_by'))
-        if user:
-            obs['created_by_info'] = {
-                'uuid': user['uuid'],
-                'name': user['name']
-            }
-        enriched_observations.append(obs)
+    observations = experiment.get('observations', [])
 
     return jsonify({
         'success': True,
-        'observations': sanitize_response(enriched_observations)
+        'observations': observations
+    })
+
+
+@observations_bp.route('/<uuid>/observations/schedule', methods=['GET'])
+@require_auth
+def get_observation_schedule(uuid):
+    """
+    Get observation schedule for experiment.
+
+    Schedule is computed dynamically from timeline.testing data.
+    """
+    from datetime import datetime, timedelta
+    from utils.helpers import INDIA_TZ
+
+    experiment = get_experiment_by_uuid(uuid)
+    if not experiment:
+        return jsonify({
+            'success': False,
+            'error': {'code': 'NOT_FOUND', 'message': 'Experiment not found'}
+        }), 404
+
+    timeline = experiment.get('timeline', {})
+    testing = timeline.get('testing')
+
+    if not testing or not testing.get('actual_start'):
+        return jsonify({
+            'success': False,
+            'error': {'code': 'NOT_IN_TESTING', 'message': 'Testing not started yet'}
+        }), 400
+
+    # Parse dates
+    try:
+        start_date = datetime.fromisoformat(testing['actual_start'])
+        duration_days = testing.get('duration_days', 4)
+    except:
+        return jsonify({
+            'success': False,
+            'error': {'code': 'INVALID_TIMELINE', 'message': 'Invalid timeline data'}
+        }), 400
+
+    # Get submitted observations
+    observations = experiment.get('observations', [])
+    submitted_days = {obs.get('day_number'): obs for obs in observations}
+
+    # Build schedule dynamically
+    now = datetime.now(INDIA_TZ)
+    schedule = []
+
+    for day_num in range(1, duration_days + 1):
+        day_date = start_date + timedelta(days=day_num - 1)
+        is_submitted = day_num in submitted_days
+        is_past = day_date.date() < now.date()
+        is_today = day_date.date() == now.date()
+
+        # Determine status
+        if is_submitted:
+            status = 'completed'
+        elif is_today:
+            status = 'current'
+        elif is_past:
+            status = 'overdue'
+        else:
+            status = 'locked'
+
+        schedule.append({
+            'day_number': day_num,
+            'date': day_date.isoformat(),
+            'status': status,
+            'is_submitted': is_submitted,
+            'can_submit': status in ['current', 'overdue']
+        })
+
+    # Calculate current day
+    days_elapsed = (now - start_date).days + 1
+    current_day = min(max(days_elapsed, 1), duration_days)
+
+    return jsonify({
+        'success': True,
+        'current_phase': experiment.get('current_phase'),
+        'current_day': current_day,
+        'duration_days': duration_days,
+        'schedule': schedule
     })

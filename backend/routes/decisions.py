@@ -115,10 +115,9 @@ def submit_experiment_decision(uuid):
 
 @decisions_bp.route('/<uuid>/decision/override', methods=['POST'])
 @require_auth
-@require_admin
 @rate_limit_default
 def override_experiment_decision(uuid):
-    """Override decision (admin only)."""
+    """Override decision (owner or admin)."""
     data = request.get_json()
 
     if not data:
@@ -185,8 +184,19 @@ def override_experiment_decision(uuid):
             }
         }), 400
 
+    # Check ownership - owner or admin can override
+    user = getattr(g, 'user', {})
+    if not check_ownership(experiment, user):
+        return jsonify({
+            'success': False,
+            'error': {
+                'code': 'FORBIDDEN',
+                'message': 'Only owner or admin can override decision'
+            }
+        }), 403
+
     # Override decision
-    user_uuid = g.user.get('uuid')
+    user_uuid = user.get('uuid')
     updated = override_decision(uuid, new_decision, new_reason, user_uuid)
 
     if not updated:

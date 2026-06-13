@@ -1,34 +1,95 @@
+"""
+Phase-related routes - simplified for automatic lifecycle engine.
+
+Phases are auto-calculated, not manually set.
+Routes here handle transitions and extensions.
+"""
 from flask import Blueprint, request, jsonify, g
 from middleware.auth import require_auth
 from middleware.roles import check_ownership
 from middleware.rate_limit import rate_limit_default
 from models.experiment import (
     get_experiment_by_uuid,
-    update_phase,
+    transition_phase,
     extend_deadline
 )
-from utils.validators import validate_experiment_phase, validate_phase_for_extension
-from utils.helpers import get_current_timestamp, sanitize_response
+from utils.helpers import sanitize_response
 
 phases_bp = Blueprint('phases', __name__, url_prefix='/api/experiments')
 
-# Phase progression order
-PHASE_ORDER = [
-    'IDEA',
-    'BUILDING',
-    'WAITING_FOR_TEST',
-    'USER_TESTING',
-    'DECISION_PENDING',
-    'FINISHED'
-]
+@phases_bp.route('/<uuid>/actions', methods=['GET'])
+@require_auth
+def get_available_actions(uuid):
+    """
+    Get available actions for current experiment state.
 
-@phases_bp.route('/<uuid>/phase', methods=['PATCH'])
+    Returns a list of actions the user can take based on:
+    - Current auto-resolved phase
+    - Timeline state
+    - User permissions
+    """
+    experiment = get_experiment_by_uuid(uuid)
+    if not experiment:
+        return jsonify({
+            'success': False,
+            'error': {
+                'code': 'NOT_FOUND',
+                'message': 'Experiment not found'
+            }
+        }), 404
+
+    # Check ownership
+    user = getattr(g, 'user', {})
+    is_owner = check_ownership(experiment, user)
+
+    allowed_actions = experiment.get('allowed_actions', [])
+
+    # Filter actions based on permissions
+    actions = []
+    for action in allowed_actions:
+        action_data = {
+            'action': action.get('action'),
+            'label': action.get('label'),
+            'description': action.get('description'),
+            'requires_confirmation': action.get('requires_confirmation', False),
+            'requires_reason': action.get('requires_reason', False),
+            'min_reason_length': action.get('min_reason_length'),
+            'current_day': action.get('current_day'),
+            'options': action.get('options')
+        }
+
+        # Add metadata based on action
+        if action['action'] == 'start_testing' and not is_owner:
+            continue  # Only owner can start testing
+        if action['action'] == 'submit_decision' and not is_owner:
+            continue  # Only owner can submit decision
+
+        actions.append(action_data)
+
+    # Add phase progress info
+    phase_progress = experiment.get('phase_progress', {})
+
+    return jsonify({
+        'success': True,
+        'current_phase': experiment.get('current_phase'),
+        'phase_display': experiment.get('phase_display'),
+        'phase_progress': phase_progress,
+        'actions': actions,
+        'can_edit': is_owner or user.get('role') == 'ADMIN'
+    })
+
+@phases_bp.route('/<uuid>/transition', methods=['POST'])
 @require_auth
 @rate_limit_default
-def update_experiment_phase(uuid):
-    """Update experiment phase."""
-    data = request.get_json()
+def transition(uuid):
+    """
+    Execute phase transition action.
 
+    Valid actions:
+    - complete_building: Finish build, move to WAITING_FOR_TEST
+    - start_testing: Begin testing, move to USER_TESTING
+    """
+    data = request.get_json()
     if not data:
         return jsonify({
             'success': False,
@@ -38,20 +99,16 @@ def update_experiment_phase(uuid):
             }
         }), 400
 
-    new_phase = data.get('phase', '').upper()
-
-    # Validate phase
-    valid, error = validate_experiment_phase(new_phase)
-    if not valid:
+    action = data.get('action')
+    if not action:
         return jsonify({
             'success': False,
             'error': {
-                'code': 'INVALID_PHASE',
-                'message': error
+                'code': 'MISSING_ACTION',
+                'message': 'Action is required'
             }
         }), 400
 
-    # Get experiment
     experiment = get_experiment_by_uuid(uuid)
     if not experiment:
         return jsonify({
@@ -69,62 +126,49 @@ def update_experiment_phase(uuid):
             'success': False,
             'error': {
                 'code': 'FORBIDDEN',
-                'message': 'Only owner or admin can update phase'
+                'message': 'Only owner or admin can transition phases'
             }
         }), 403
 
-    # Check if already in this phase
-    current_phase = experiment.get('current_phase')
-    if current_phase == new_phase:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'SAME_PHASE',
-                'message': 'Experiment is already in this phase'
-            }
-        }), 400
+    user_uuid = user.get('uuid')
+    updated = transition_phase(uuid, action, user_uuid)
 
-    # Determine actual dates based on phase
-    actual_dates = {}
-    now = get_current_timestamp()
-
-    if new_phase == 'BUILDING':
-        actual_dates['build'] = {'actual_start': now}
-    elif new_phase == 'WAITING_FOR_TEST':
-        actual_dates['build'] = {'actual_end': now}
-        actual_dates['testing'] = {'actual_start': now}
-    elif new_phase == 'USER_TESTING':
-        actual_dates['testing'] = {'actual_start': now}
-    elif new_phase == 'DECISION_PENDING':
-        actual_dates['testing'] = {'actual_end': now}
-        actual_dates['decision'] = {'actual_start': now}
-    elif new_phase == 'FINISHED':
-        actual_dates['decision'] = {'actual_end': now}
-
-    # Update phase
-    updated = update_phase(uuid, new_phase, actual_dates)
     if not updated:
         return jsonify({
             'success': False,
             'error': {
-                'code': 'UPDATE_FAILED',
-                'message': 'Failed to update phase'
+                'code': 'TRANSITION_FAILED',
+                'message': f"Cannot perform action '{action}' from phase {experiment.get('current_phase')}"
             }
-        }), 500
+        }), 400
+
+    from models.user import get_user_by_uuid
+
+    # Enrich response
+    owner = get_user_by_uuid(updated.get('owner'))
+    if owner:
+        updated['owner_info'] = {
+            'uuid': owner['uuid'],
+            'name': owner['name'],
+            'email': owner['email']
+        }
 
     return jsonify({
         'success': True,
-        'message': f'Phase updated to {new_phase}',
+        'message': f"Action '{action}' completed successfully",
         'experiment': sanitize_response(updated)
     })
 
 @phases_bp.route('/<uuid>/extend', methods=['POST'])
 @require_auth
 @rate_limit_default
-def extend_experiment_deadline(uuid):
-    """Extend deadline for a phase."""
-    data = request.get_json()
+def extend(uuid):
+    """
+    Extend deadline and automatically recalculate timeline.
 
+    The lifecycle engine shifts all future phases to maintain continuity.
+    """
+    data = request.get_json()
     if not data:
         return jsonify({
             'success': False,
@@ -138,18 +182,15 @@ def extend_experiment_deadline(uuid):
     new_deadline_str = data.get('new_deadline')
     reason = data.get('reason', '').strip()
 
-    # Validate phase
-    valid, error = validate_phase_for_extension(phase)
-    if not valid:
+    if not phase or not new_deadline_str:
         return jsonify({
             'success': False,
             'error': {
-                'code': 'INVALID_PHASE',
-                'message': error
+                'code': 'MISSING_FIELDS',
+                'message': 'Phase and new_deadline are required'
             }
         }), 400
 
-    # Validate reason
     if not reason:
         return jsonify({
             'success': False,
@@ -168,20 +209,6 @@ def extend_experiment_deadline(uuid):
             }
         }), 400
 
-    # Parse new deadline
-    from dateutil import parser
-    try:
-        new_deadline = parser.parse(new_deadline_str)
-    except:
-        return jsonify({
-            'success': False,
-            'error': {
-                'code': 'INVALID_DATE',
-                'message': 'Invalid date format for new deadline'
-            }
-        }), 400
-
-    # Get experiment
     experiment = get_experiment_by_uuid(uuid)
     if not experiment:
         return jsonify({
@@ -203,9 +230,33 @@ def extend_experiment_deadline(uuid):
             }
         }), 403
 
+    # Parse new deadline
+    from dateutil import parser
+    try:
+        new_deadline = parser.parse(new_deadline_str)
+    except:
+        return jsonify({
+            'success': False,
+            'error': {
+                'code': 'INVALID_DATE',
+                'message': 'Invalid date format for new deadline'
+            }
+        }), 400
+
+    # Validate phase is extendable
+    if phase not in ['build', 'testing', 'decision']:
+        return jsonify({
+            'success': False,
+            'error': {
+                'code': 'INVALID_PHASE',
+                'message': 'Can only extend build, testing, or decision phases'
+            }
+        }), 400
+
     # Get current deadline to ensure new is later
-    current_deadline = experiment.get('timeline', {}).get(phase, {}).get('extended_deadline') or \
-                       experiment.get('timeline', {}).get(phase, {}).get('deadline')
+    timeline = experiment.get('timeline', {})
+    phase_data = timeline.get(phase, {})
+    current_deadline = phase_data.get('extended_deadline') or phase_data.get('deadline')
 
     if current_deadline:
         try:
@@ -235,8 +286,19 @@ def extend_experiment_deadline(uuid):
             }
         }), 500
 
+    from models.user import get_user_by_uuid
+
+    # Enrich response
+    owner = get_user_by_uuid(updated.get('owner'))
+    if owner:
+        updated['owner_info'] = {
+            'uuid': owner['uuid'],
+            'name': owner['name'],
+            'email': owner['email']
+        }
+
     return jsonify({
         'success': True,
-        'message': f'{phase} deadline extended successfully',
+        'message': f'{phase} deadline extended. All future phases automatically recalculated.',
         'experiment': sanitize_response(updated)
     })

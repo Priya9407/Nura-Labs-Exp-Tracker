@@ -1,14 +1,18 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dateutil import parser as date_parser
+from bson import ObjectId
+
+# India timezone (Asia/Kolkata) - UTC+5:30
+INDIA_TZ = timezone(timedelta(hours=5, minutes=30))
 
 def generate_uuid():
     """Generate a UUID v4 string."""
     return str(uuid.uuid4())
 
 def get_current_timestamp():
-    """Get current UTC timestamp."""
-    return datetime.now(timezone.utc)
+    """Get current India timezone timestamp."""
+    return datetime.now(INDIA_TZ)
 
 def parse_date(date_str):
     """Parse date string to datetime object."""
@@ -76,10 +80,14 @@ def calculate_day_number(start_date, current_date=None):
     return max(1, delta.days + 1)
 
 def sanitize_response(data):
-    """Remove internal fields from response data."""
+    """Remove internal fields from response data and convert ObjectIds to strings."""
     if isinstance(data, dict):
         return {k: sanitize_response(v) for k, v in data.items()
                 if k not in ['_id', 'password_hash', 'password']}
     elif isinstance(data, list):
         return [sanitize_response(item) for item in data]
+    elif isinstance(data, ObjectId):
+        return str(data)
+    elif isinstance(data, datetime):
+        return data.isoformat()
     return data

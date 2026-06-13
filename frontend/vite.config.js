@@ -8,7 +8,9 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    host: '0.0.0.0',  // Listen on all interfaces for WiFi access
     port: 3000,
+    strictPort: true,
     proxy: {
       '/api': 'http://localhost:5000',
     },

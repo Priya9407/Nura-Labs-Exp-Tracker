@@ -15,9 +15,9 @@ from models.user import check_initial_admin
 from routes.auth import auth_bp
 from routes.users import users_bp
 from routes.experiments import experiments_bp
-from routes.phases import phases_bp
 from routes.observations import observations_bp
-from routes.decisions import decisions_bp
+from routes.activity_logs import activity_logs_bp
+from routes.docs import docs_bp
 
 # Create Flask app
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend')
@@ -33,9 +33,9 @@ CORS(app, supports_credentials=True, origins=[Config.FRONTEND_URL])
 app.register_blueprint(auth_bp)
 app.register_blueprint(users_bp)
 app.register_blueprint(experiments_bp)
-app.register_blueprint(phases_bp)
 app.register_blueprint(observations_bp)
-app.register_blueprint(decisions_bp)
+app.register_blueprint(activity_logs_bp)
+app.register_blueprint(docs_bp)
 
 # Debug: Print registered routes
 print("\nRegistered Routes:")
@@ -69,11 +69,38 @@ def server_error(error):
 @app.route('/api/health')
 def health_check():
     """Health check endpoint."""
+    print("GET /api/health called")
     return jsonify({
         'success': True,
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
         'version': '1.0.0'
+    })
+
+# API Documentation - Swagger-like
+@app.route('/api/docs')
+def api_docs():
+    """Return API documentation."""
+    routes = []
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint != 'static' and str(rule).startswith('/api/'):
+            # Get docstring from the endpoint function
+            view_func = app.view_functions.get(rule.endpoint)
+            doc = view_func.__doc__ if view_func else None
+
+            routes.append({
+                'path': str(rule),
+                'methods': list(rule.methods - {'OPTIONS', 'HEAD'}),
+                'endpoint': rule.endpoint,
+                'description': doc.strip() if doc else None
+            })
+
+    return jsonify({
+        'success': True,
+        'api_version': '1.0.0',
+        'base_url': Config.BACKEND_URL,
+        'total_routes': len(routes),
+        'routes': sorted(routes, key=lambda x: x['path'])
     })
 
 # Test endpoint for debugging
@@ -120,4 +147,6 @@ with app.app_context():
 if __name__ == '__main__':
     print(f"Starting Flask server on port {Config.FLASK_PORT}")
     print(f"Environment: {Config.FLASK_ENV}")
+    print(f"Access the app at: http://0.0.0.0:{Config.FLASK_PORT}")
+    print(f"For WiFi access, use your computer's IP address (e.g., http://172.31.96.72:{Config.FLASK_PORT})")
     app.run(host='0.0.0.0', port=Config.FLASK_PORT, debug=Config.FLASK_ENV == 'development')
