@@ -10,6 +10,8 @@ services:
       MONGO_INITDB_DATABASE: experiment_platform
     volumes:
       - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
     networks:
       - experiment-network
 
@@ -20,15 +22,17 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
+    ports:
+      - "6379:6379"
     networks:
       - experiment-network
 
-  # Flask backend (internal only - no exposed port)
-  backend:
+  # Main application
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: experiment-backend
+    container_name: experiment-platform
     restart: unless-stopped
     environment:
       - FLASK_ENV=production
@@ -36,56 +40,32 @@ services:
       - MONGODB_URL=mongodb://mongodb:27017/experiment_platform
       - REDIS_URL=redis://redis:6379/0
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
-      - ADMIN_NAME=${ADMIN_NAME:-Admin User}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_NAME=${ADMIN_NAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_EMAIL=${SMTP_EMAIL:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
-      - BACKEND_URL=${BACKEND_URL:-http://localhost/api}
-    expose:
-      - "5000"  # Only exposed to other containers, not host
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8190}
+      - BACKEND_URL=${BACKEND_URL:-http://localhost:8190}
+    ports:
+      - "8190:8190"
     depends_on:
       - mongodb
       - redis
     networks:
       - experiment-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8190/api/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-  # Apache Web Server (Reverse Proxy)
-  apache:
-    image: httpd:2.4-alpine
-    container_name: experiment-apache
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"  # For HTTPS (optional)
-    environment:
-      - SERVER_NAME=task.vbuddy.in
-      - SERVER_ADMIN=admin@task.vbuddy.in
-    volumes:
-      - ./apache/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
-      - ./apache/extra/:/usr/local/apache2/conf/extra/:ro
-      - ./frontend/dist:/usr/local/apache2/htdocs:ro
-      - apache_logs:/usr/local/apache2/logs
-      # Uncomment for SSL certificates:
-      # - /etc/letsencrypt:/etc/letsencrypt:ro
-    depends_on:
-      - backend
-    networks:
-      - experiment-network
-
 volumes:
   mongodb_data:
   redis_data:
-  apache_logs:
 
 networks:
   experiment-network:
