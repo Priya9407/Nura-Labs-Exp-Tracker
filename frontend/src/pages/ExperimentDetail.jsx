@@ -590,7 +590,32 @@ function ExperimentDetail() {
                 {experiment.target_user ? (
                   <TextItem label="Target User" value={experiment.target_user} />
                 ) : null}
-                {!experiment.assumption_statement && !experiment.target_user && (
+                {/* Scopes */}
+                {experiment.scopes && experiment.scopes.length > 0 && (
+                  <div className="ed-text-item" style={{ marginTop: 16 }}>
+                    <span className="ed-label">Scopes</span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                      {experiment.scopes.map((scope, index) => (
+                        <span
+                          key={index}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '6px 12px',
+                            background: 'var(--accent-coral-light)',
+                            borderRadius: 20,
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: 'var(--accent-coral)',
+                          }}
+                        >
+                          {scope}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!experiment.assumption_statement && !experiment.target_user && !(experiment.scopes && experiment.scopes.length > 0) && (
                   <p className="ed-empty-text">No detailed hypothesis or user defined yet.</p>
                 )}
               </div>
@@ -1219,7 +1244,7 @@ const styles = `
   }
   .ed-actions button:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    box-shadow: var(--shadow-card-hover);
   }
   .ed-actions button:active {
     transform: translateY(0);
@@ -1438,13 +1463,13 @@ const styles = `
   .ed-step-node.done {
     background: var(--accent-coral);
     border-color: var(--accent-coral);
-    box-shadow: 0 0 8px rgba(239, 106, 95, 0.3);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent-coral) 30%, transparent);
   }
-  
+
   .ed-step-node.active {
     background: var(--bg-surface);
     border-color: var(--accent-coral);
-    box-shadow: 0 0 0 4px var(--accent-coral-light), 0 0 12px rgba(239, 106, 95, 0.3);
+    box-shadow: 0 0 0 4px var(--accent-coral-light), 0 0 12px color-mix(in srgb, var(--accent-coral) 30%, transparent);
     transform: scale(1.1);
   }
 

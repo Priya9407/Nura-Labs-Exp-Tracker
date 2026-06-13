@@ -221,9 +221,10 @@ const ExperimentsPage = () => {
 
 
   const [showCreateModal, setShowCreateModal] = useState(searchParams.get('create') === 'true');
-  const [form,      setForm]      = useState({ title: '', domain: '', assumption: '' });
+  const [form,      setForm]      = useState({ title: '', domain: '', assumption: '', scopes: [] });
   const [formError, setFormError] = useState('');
   const [formLoading, setFormLoading] = useState(false);
+  const [newScope, setNewScope] = useState('');
 
   const [searchFocused, setSearchFocused] = useState(false);
 
@@ -278,15 +279,28 @@ const ExperimentsPage = () => {
       await experimentsAPI.createExperiment({
         title: form.title, domain: form.domain,
         assumption_statement: form.assumption, target_user: '',
+        scopes: form.scopes,
       });
       setShowCreateModal(false);
-      setForm({ title: '', domain: '', assumption: '' });
+      setForm({ title: '', domain: '', assumption: '', scopes: [] });
+      setNewScope('');
       await loadExperiments();
     } catch (err) {
       setFormError(err.message || 'Failed to create experiment');
     } finally {
       setFormLoading(false);
     }
+  };
+
+  const addScope = () => {
+    if (newScope.trim() && !form.scopes.includes(newScope.trim())) {
+      setForm({ ...form, scopes: [...form.scopes, newScope.trim()] });
+      setNewScope('');
+    }
+  };
+
+  const removeScope = (index) => {
+    setForm({ ...form, scopes: form.scopes.filter((_, i) => i !== index) });
   };
 
   const clearAll = () => {
@@ -549,7 +563,7 @@ const ExperimentsPage = () => {
       {/* ── Create Modal ── */}
       <Modal
         isOpen={showCreateModal}
-        onClose={() => { setShowCreateModal(false); setFormError(''); setForm({ title: '', domain: '', assumption: '' }); }}
+        onClose={() => { setShowCreateModal(false); setFormError(''); setForm({ title: '', domain: '', assumption: '', scopes: [] }); setNewScope(''); }}
         title="New experiment"
         footer={
           <>
@@ -595,6 +609,69 @@ const ExperimentsPage = () => {
               placeholder="We believe that…"
               style={{ minHeight: 80, resize: 'vertical' }}
             />
+          </div>
+
+          {/* Scope Input */}
+          <div className="ep-field">
+            <label className="ep-label">Scopes</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* Scope List */}
+              {form.scopes.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {form.scopes.map((scope, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        background: 'var(--accent-coral-light)',
+                        borderRadius: 6,
+                        fontSize: 13,
+                        color: 'var(--accent-coral)',
+                      }}
+                    >
+                      <span>{scope}</span>
+                      <button
+                        onClick={() => removeScope(index)}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--accent-coral)', display: 'flex', padding: 2,
+                        }}
+                      >
+                        <XIcon size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Add Scope Input */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="ep-input"
+                  type="text"
+                  value={newScope}
+                  onChange={e => setNewScope(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addScope(); } }}
+                  placeholder="Add a scope..."
+                  style={{ flex: 1 }}
+                />
+                <button
+                  onClick={addScope}
+                  disabled={!newScope.trim()}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 36, height: 36,
+                    background: newScope.trim() ? 'var(--accent-coral)' : 'var(--bg-surface-alt)',
+                    border: 'none', borderRadius: 8,
+                    color: '#fff', cursor: newScope.trim() ? 'pointer' : 'not-allowed',
+                    opacity: newScope.trim() ? 1 : 0.5,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <PlusIcon size={16} />
+                </button>
+              </div>
+            </div>
           </div>
 
           <div style={{

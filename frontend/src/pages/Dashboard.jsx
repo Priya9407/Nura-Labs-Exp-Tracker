@@ -774,7 +774,7 @@ function ActivityLogWithFilter({ activities, activityFilterDate, setActivityFilt
       {/* Results Header */}
       <div style={activityLogStyles.resultsHeader}>
         <span style={activityLogStyles.resultsCount}>
-          {filteredActivities.length} activity{filteredActivities.length !== 1 ? 'ies' : 'y'}
+          {filteredActivities.length} {filteredActivities.length === 1 ? 'activity' : 'activities'}
         </span>
         {(activeFilter === 'custom' && (activityFilterDate || selectedDateGroup)) ? (
           <span style={activityLogStyles.resultsDate}>

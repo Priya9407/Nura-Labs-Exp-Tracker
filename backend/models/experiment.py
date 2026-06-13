@@ -318,6 +318,7 @@ def create_experiment(data, owner_uuid):
         'owner': owner_uuid,
         'assumption_statement': data.get('assumption_statement', ''),
         'target_user': data.get('target_user', ''),
+        'scopes': data.get('scopes', []),  # Array of scope strings
 
         # Links (null if first experiment)
         'parent_experiment_uuid': None,
@@ -756,6 +757,7 @@ def create_iteration_experiment(previous_experiment, user_uuid):
         'owner': user_uuid,
         'assumption_statement': previous_experiment.get('assumption_statement', ''),
         'target_user': previous_experiment.get('target_user', ''),
+        'scopes': previous_experiment.get('scopes', []),
 
         # Links
         'parent_experiment_uuid': prev_uuid,
