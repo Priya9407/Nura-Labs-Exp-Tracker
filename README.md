@@ -117,16 +117,10 @@ EXP-003 "AI Onboarding V3"
 ### Query All Attempts
 
 ```javascript
-db.experiments.find({root_experiment_uuid: "EXP-001"})
-  .sort({iteration_number: 1})
+db.experiments
+  .find({ root_experiment_uuid: "EXP-001" })
+  .sort({ iteration_number: 1 });
 ```
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                  │
-│  Learnings from both iterations preserved for future reference  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
 
 ---
 
@@ -135,44 +129,45 @@ db.experiments.find({root_experiment_uuid: "EXP-001"})
 ### Technology Stack
 
 | Layer | Technology |
-|-------|-----------|
+|---|---|
 | Frontend | React + Vite |
 | Backend | Flask (Python) |
 | Database | MongoDB |
 | Cache/Sessions | Redis |
-| Auth | Session-based (Redis) |
+| Authentication | Session-based (Redis) |
 
 ### Project Structure
 
-```
+```text
 Nura AI Labs/
 ├── backend/
-│   ├── app.py                      # Flask entry
-│   ├── config/settings.py          # Configuration
-│   ├── middleware/                 # Auth, roles, rate limiting
+│   ├── app.py
+│   ├── config/
+│   │   └── settings.py
+│   ├── middleware/
 │   │   ├── auth.py
 │   │   ├── roles.py
 │   │   └── rate_limit.py
 │   ├── models/
-│   │   ├── user.py                # User CRUD
-│   │   └── experiment.py          # Experiment + workflow
+│   │   ├── user.py
+│   │   └── experiment.py
 │   ├── routes/
-│   │   ├── auth.py                # Auth endpoints
-│   │   ├── experiments.py         # Experiment actions
-│   │   ├── users.py               # User management
-│   │   ├── activity_logs.py       # Activity log endpoints
-│   │   └── docs.py                # API documentation
+│   │   ├── auth.py
+│   │   ├── experiments.py
+│   │   ├── users.py
+│   │   ├── activity_logs.py
+│   │   └── docs.py
 │   ├── services/
-│   │   ├── activity_log_service.py   # Audit trail service
-│   │   ├── lifecycle_engine.py       # Core workflow engine
-│   │   ├── notification_service.py   # Notification service
-│   │   ├── redis_service.py          # Redis ops
-│   │   └── email.py                  # Email service
-│   └── utils/                     # Helpers, validators
+│   │   ├── activity_log_service.py
+│   │   ├── lifecycle_engine.py
+│   │   ├── notification_service.py
+│   │   ├── redis_service.py
+│   │   └── email.py
+│   └── utils/
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── Dashboard.jsx      # Experiment list
+│   │   │   ├── Dashboard.jsx
 │   │   │   ├── ExperimentDetail.jsx
 │   │   │   ├── Experiments.jsx
 │   │   │   ├── Archived.jsx
@@ -192,7 +187,8 @@ Nura AI Labs/
 │   │       └── format.js
 │   ├── login.html
 │   ├── activate.html
-│   └── scripts/api.js
+│   └── scripts/
+│       └── api.js
 └── README.md
 ```
 
@@ -202,28 +198,32 @@ Nura AI Labs/
 
 ### Complete Experiment Lifecycle (5 Phases)
 
+```text
+┌──────────┐      ┌────────────┐      ┌─────────────┐
+│   IDEA   │ ──▶ │  BUILDING  │ ───▶ │   TESTING   │
+└──────────┘      │  (2 days)  │      │  (N days)   │
+                  └────────────┘      └─────────────┘
+                                             │
+                                             ▼
+                                      ┌──────────────┐
+                                      │ Observations │
+                                      │ (1 per day)  │
+                                      └──────────────┘
+                                             │
+                                             ▼
+                                      ┌────────────┐
+                                      │  DECISION  │
+                                      └────────────┘
+                                             │
+                                             ▼
+                                      ┌───────────┐
+                                      │ COMPLETED │
+                                      └───────────┘
 ```
-┌──────────┐     ┌──────────┐     ┌─────────────┐
-│   IDEA   │ ──▶ │ BUILDING │ ──▶ │   TESTING   │
-│          │     │ (2 days) │     │ (N days)    │
-└──────────┘     └──────────┘     └─────────────┘
-    │                                              │
-    │                                              ▼
-    │                                       ┌──────────────┐
-    │                                       │ Observations │
-    │                                       │ (1 per day)  │
-    │                                       └──────────────┘
-    │                                              │
-    │                                              ▼
-    │                                        ┌──────────┐
-    └────────────────────────────────────────│ DECISION │
-                                             └──────────┘
-                                                  │
-                                                  ▼
-                                           ┌────────────┐
-                                           │  COMPLETED │
-                                           └────────────┘
-```
+
+---
+
+**Learnings from both iterations are preserved for future reference.**
 
 ### Phase Actions & Transitions
 
