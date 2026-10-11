@@ -13,7 +13,21 @@ client = MongoClient(Config.MONGODB_URL)
 db = client.get_database()
 experiments_collection = db.experiments
 
-PHASE_ORDER = ['IDEA', 'BUILDING', 'TESTING', 'DECISION', 'COMPLETED']
+PHASE_ORDER = ['RAW_IDEA', 'IDEA', 'BUILDING', 'TESTING', 'DECISION', 'COMPLETED']
+
+# Phase display names
+PHASE_DISPLAY_NAMES = {
+    'RAW_IDEA': 'Raw Idea',
+    'IDEA': 'Idea',
+    'BUILDING': 'Building',
+    'TESTING': 'Testing',
+    'DECISION': 'Decision',
+    'COMPLETED': 'Completed'
+}
+
+def get_phase_display_name(phase):
+    """Get display name for a phase."""
+    return PHASE_DISPLAY_NAMES.get(phase, phase)
 
 # Additional phase states for scheduling
 SCHEDULED_STATUS = 'SCHEDULED'  # Testing is scheduled for a future date
@@ -188,14 +202,22 @@ def calculate_observation_status(experiment):
     }
 
 
-def get_allowed_actions(experiment):
+def get_allowed_actions(experiment, user_uuid=None):
     if experiment.get('status') != 'ACTIVE':
         return []
 
     phase = experiment.get('current_phase')
     actions = []
 
-    if phase == 'IDEA':
+    if phase == 'RAW_IDEA':
+        # Only show "Take Idea" if no owner yet
+        if not experiment.get('owner'):
+            actions.append({
+                'action': 'take_raw_idea',
+                'label': 'Take Idea',
+                'description': 'Take ownership and develop this raw idea into an experiment.'
+            })
+    elif phase == 'IDEA':
         actions.append({
             'action': 'start_building',
             'label': 'Start Building',
@@ -301,6 +323,101 @@ def log_activity(experiment_uuid, activity_type, details, user_uuid):
     return activity_log_service.log_activity(
         experiment_uuid, activity_type, details, user_uuid
     )
+
+
+def create_raw_idea(title, description, creator_uuid):
+    """
+    Create a new raw idea.
+    Raw ideas have minimal data and are in RAW_IDEA phase.
+    """
+    now = get_current_timestamp()
+    idea_uuid = generate_uuid()
+
+    raw_idea = {
+        'uuid': idea_uuid,
+        'exp_no': None,  # Raw ideas don't get experiment numbers
+        'title': title,
+        'description': description,  # Raw idea description
+        'domain': '',
+        'owner': None,  # No owner until someone takes it
+        'creator': creator_uuid,  # Who created the raw idea
+        'assumption_statement': '',
+        'target_user': '',
+        'scopes': [],
+
+        # Links
+        'parent_experiment_uuid': None,
+        'root_experiment_uuid': idea_uuid,
+        'iteration_number': 1,
+        'created_from_decision': None,
+
+        # Status
+        'status': 'ACTIVE',
+        'current_phase': 'RAW_IDEA',
+
+        # Timeline - empty for raw ideas
+        'timeline': {
+            'build': None,
+            'testing': None,
+            'decision': None
+        },
+
+        # Observations - empty
+        'observations': [],
+
+        # Decision - null
+        'decision': None,
+
+        'created_at': now,
+        'updated_at': now
+    }
+
+    experiments_collection.insert_one(raw_idea)
+
+    # Log activity
+    log_activity(idea_uuid, 'raw_idea_created', {'title': title}, creator_uuid)
+
+    return raw_idea
+
+
+def take_raw_idea(uuid, user_uuid, data):
+    """
+    Take a raw idea and convert it to an experiment in IDEA phase.
+    The user who takes it becomes the owner.
+    """
+    experiment = experiments_collection.find_one({'uuid': uuid})
+    if not experiment:
+        return None
+
+    if experiment.get('current_phase') != 'RAW_IDEA':
+        return None
+
+    now = get_current_timestamp()
+
+    # Update the raw idea to become a proper experiment
+    updates = {
+        'exp_no': get_next_experiment_number(),
+        'owner': user_uuid,
+        'domain': data.get('domain', ''),
+        'assumption_statement': data.get('assumption_statement', ''),
+        'target_user': data.get('target_user', ''),
+        'scopes': data.get('scopes', []),
+        'current_phase': 'IDEA',
+        'updated_at': now
+    }
+
+    experiments_collection.update_one(
+        {'uuid': uuid},
+        {'$set': updates}
+    )
+
+    # Log activity
+    log_activity(uuid, 'raw_idea_taken', {
+        'title': experiment['title'],
+        'taken_by': user_uuid
+    }, user_uuid)
+
+    return get_experiment_by_uuid(uuid)
 
 
 def create_experiment(data, owner_uuid):
@@ -857,7 +974,7 @@ def cancel_experiment(uuid, user_uuid, reason):
 
 # Query helpers
 
-def list_experiments(owner_uuid=None, status=None, view='active'):
+def list_experiments(owner_uuid=None, status=None, view='active', include_raw_ideas=False):
     """List experiments with optional filters."""
     query = {}
 
@@ -872,6 +989,20 @@ def list_experiments(owner_uuid=None, status=None, view='active'):
         query['status'] = 'COMPLETED'
     elif view == 'cancelled':
         query['status'] = 'CANCELLED'
+
+    # By default, exclude raw ideas from experiments list
+    if not include_raw_ideas:
+        query['current_phase'] = {'$ne': 'RAW_IDEA'}
+
+    return list(experiments_collection.find(query).sort('created_at', -1))
+
+
+def list_raw_ideas(status='ACTIVE'):
+    """List all raw ideas that haven't been taken yet."""
+    query = {'current_phase': 'RAW_IDEA'}
+
+    if status:
+        query['status'] = status
 
     return list(experiments_collection.find(query).sort('created_at', -1))
 

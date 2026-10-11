@@ -83,6 +83,9 @@ const Dashboard = () => {
   const [error, setError] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showCreateRawIdeaModal, setShowCreateRawIdeaModal] = useState(false);
+  const [allExperiments, setAllExperiments] = useState([]);
+  const [rawIdeas, setRawIdeas] = useState([]);
   const [allActivities, setAllActivities] = useState([]);
   const [showAllActivities, setShowAllActivities] = useState(false);
   const [activityFilterDate, setActivityFilterDate] = useState('');
@@ -90,6 +93,11 @@ const Dashboard = () => {
   const [selectedDateGroup, setSelectedDateGroup] = useState(null);
 
   // Form state
+  // Raw Idea form state
+  const [rawIdeaForm, setRawIdeaForm] = useState({ title: '', description: '' });
+  const [rawIdeaFormError, setRawIdeaFormError] = useState('');
+  const [rawIdeaFormLoading, setRawIdeaFormLoading] = useState(false);
+
   const [form, setForm] = useState({
     title: '',
     domain: '',
@@ -148,7 +156,7 @@ const Dashboard = () => {
       setError('');
 
       try {
-        // Load experiments
+        // Load user's experiments for the list view
         const expResponse = await experimentsAPI.listExperiments('my');
         const experimentsList = (expResponse?.experiments || []).filter(
           exp => exp?.owner === user?.uuid && exp?.status === 'ACTIVE'
@@ -157,6 +165,25 @@ const Dashboard = () => {
       } catch (err) {
         setError(err?.message || 'Failed to load experiments');
         setExperiments([]);
+      }
+
+      // Load all experiments for global stats (non-blocking)
+      try {
+        const allExpResponse = await experimentsAPI.listExperiments('all');
+        const allExperimentsList = allExpResponse?.experiments || [];
+        setAllExperiments(allExperimentsList);
+      } catch (err) {
+        console.error('Failed to load all experiments:', err);
+        setAllExperiments([]);
+      }
+
+      // Load raw ideas (non-blocking)
+      try {
+        const rawIdeasResponse = await experimentsAPI.listRawIdeas();
+        setRawIdeas(rawIdeasResponse?.experiments || []);
+      } catch (err) {
+        console.error('Failed to load raw ideas:', err);
+        setRawIdeas([]);
       } finally {
         setLoading(false);
       }
@@ -216,6 +243,28 @@ const Dashboard = () => {
     }
   };
 
+  const handleCreateRawIdea = async (e) => {
+    e.preventDefault();
+    setRawIdeaFormError('');
+    if (!rawIdeaForm.title.trim()) {
+      setRawIdeaFormError('Title is required');
+      return;
+    }
+    setRawIdeaFormLoading(true);
+    try {
+      await experimentsAPI.createRawIdea(rawIdeaForm.title, rawIdeaForm.description);
+      setShowCreateRawIdeaModal(false);
+      setRawIdeaForm({ title: '', description: '' });
+      // Reload raw ideas
+      const rawIdeasResponse = await experimentsAPI.listRawIdeas();
+      setRawIdeas(rawIdeasResponse?.experiments || []);
+    } catch (err) {
+      setRawIdeaFormError(err.message || 'Failed to create raw idea');
+    } finally {
+      setRawIdeaFormLoading(false);
+    }
+  };
+
   const handleInvite = async (e) => {
     e.preventDefault();
     setInviteError('');
@@ -237,13 +286,14 @@ const Dashboard = () => {
     }
   };
 
+  // Stats based on ALL users' experiments
   const stats = {
-    total: experiments.length,
-    active: experiments.filter(e => e.status === 'ACTIVE').length,
-    inBuild: experiments.filter(e => e.current_phase === 'BUILDING').length,
-    inTesting: experiments.filter(e => e.current_phase === 'TESTING').length,
-    pendingDecision: experiments.filter(e => e.current_phase === 'DECISION').length,
-    overdue: experiments.filter(e => e.phase_progress?.is_overdue).length,
+    total: allExperiments.length,
+    active: allExperiments.filter(e => e.status === 'ACTIVE').length,
+    inBuild: allExperiments.filter(e => e.current_phase === 'BUILDING').length,
+    inTesting: allExperiments.filter(e => e.current_phase === 'TESTING').length,
+    pendingDecision: allExperiments.filter(e => e.current_phase === 'DECISION').length,
+    cancelled: allExperiments.filter(e => e.status === 'CANCELLED').length,
   };
 
   const overdueExperiments = experiments.filter(e => e.phase_progress?.is_overdue);
@@ -301,6 +351,9 @@ const Dashboard = () => {
             </p>
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
+            <Button variant="secondary" onClick={() => setShowCreateRawIdeaModal(true)}>
+              Create Raw Idea
+            </Button>
             {isAdmin && (
               <Button variant="secondary" onClick={() => setShowInviteModal(true)}>
                 Invite User
@@ -344,10 +397,10 @@ const Dashboard = () => {
               icon={AlertCircleIcon}
             />
             <StatCard
-              title="Overdue"
-              value={stats.overdue}
+              title="Cancelled"
+              value={stats.cancelled}
               color="red"
-              icon={AlertCircleIcon}
+              icon={XIcon}
             />
           </div>
         )}
@@ -375,6 +428,58 @@ const Dashboard = () => {
               ))}
             </div>
           </AlertBanner>
+        )}
+
+        {/* Raw Ideas Section */}
+        {rawIdeas.length > 0 && (
+          <div className="raw-ideas-section" style={{ marginBottom: '24px' }}>
+            <div className="section-header" style={{ marginBottom: '16px' }}>
+              <h2 className="section-title">Raw Ideas</h2>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                {rawIdeas.length} idea{rawIdeas.length !== 1 ? 's' : ''} waiting to be taken
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {rawIdeas.map(idea => (
+                <div
+                  key={idea.uuid}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+                    padding: '16px 20px',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent-coral)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                >
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
+                      {idea.title}
+                    </h3>
+                    {idea.description && (
+                      <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: '0 0 8px 0', lineHeight: 1.5 }}>
+                        {idea.description}
+                      </p>
+                    )}
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+                      Created by {idea.creator_info?.name || 'Unknown'} • {new Date(idea.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="small"
+                    onClick={() => navigate(`/experiment/${idea.uuid}`)}
+                    style={{ marginLeft: '12px', flexShrink: 0 }}
+                  >
+                    Take Idea
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Main Content Grid */}
@@ -602,6 +707,69 @@ const Dashboard = () => {
                 <option value="MEMBER">Member</option>
                 <option value="ADMIN">Admin</option>
               </select>
+            </div>
+          </form>
+        </Modal>
+
+        {/* Create Raw Idea Modal */}
+        <Modal
+          isOpen={showCreateRawIdeaModal}
+          onClose={() => {
+            setShowCreateRawIdeaModal(false);
+            setRawIdeaFormError('');
+          }}
+          title="Create Raw Idea"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setShowCreateRawIdeaModal(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={handleCreateRawIdea} loading={rawIdeaFormLoading}>
+                Create
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={handleCreateRawIdea} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {rawIdeaFormError && (
+              <AlertBanner variant="error" onClose={() => setRawIdeaFormError('')}>
+                {rawIdeaFormError}
+              </AlertBanner>
+            )}
+            <div>
+              <label style={formLabelStyles}>
+                Title <span style={{ color: 'var(--accent-coral)' }}>*</span>
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                value={rawIdeaForm.title}
+                onChange={(e) => setRawIdeaForm({ ...rawIdeaForm, title: e.target.value })}
+                style={formInputStyles}
+                placeholder="e.g., New Feature Idea"
+              />
+            </div>
+            <div>
+              <label style={formLabelStyles}>
+                Description
+              </label>
+              <textarea
+                className="form-input"
+                value={rawIdeaForm.description}
+                onChange={(e) => setRawIdeaForm({ ...rawIdeaForm, description: e.target.value })}
+                style={{ ...formInputStyles, minHeight: '100px', resize: 'vertical' }}
+                placeholder="Describe your idea in more detail..."
+              />
+            </div>
+            <div style={{
+              padding: '12px 16px',
+              borderRadius: '8px',
+              background: 'var(--accent-teal-light)',
+              fontSize: '13px',
+              color: 'var(--accent-teal)',
+              lineHeight: 1.5,
+            }}>
+              Raw ideas are quick thoughts that anyone can pick up and develop into full experiments.
             </div>
           </form>
         </Modal>

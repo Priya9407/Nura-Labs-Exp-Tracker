@@ -114,3 +114,16 @@ export async function getExperimentActivities(uuid) {
 export async function getRecentActivities(limit = 50) {
   return get(`/activities/recent?limit=${limit}`);
 }
+
+// Raw Ideas
+export async function createRawIdea(title, description) {
+  return post('/experiments/raw-ideas', { title, description });
+}
+
+export async function listRawIdeas() {
+  return get('/experiments/raw-ideas');
+}
+
+export async function takeRawIdea(uuid, data) {
+  return post(`/experiments/${uuid}/take`, data);
+}

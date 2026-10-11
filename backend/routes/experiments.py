@@ -11,6 +11,9 @@ from middleware.roles import check_ownership, require_admin
 from middleware.rate_limit import rate_limit_default
 from models.experiment import (
     create_experiment,
+    create_raw_idea,
+    take_raw_idea,
+    list_raw_ideas,
     get_experiment_by_uuid,
     get_experiment_with_context,
     get_experiments_by_root,
@@ -48,6 +51,15 @@ def enrich_response(experiment):
             'uuid': owner['uuid'],
             'name': owner['name'],
             'email': owner['email']
+        }
+
+    # Add creator info for raw ideas
+    creator = get_user_by_uuid(experiment.get('creator'))
+    if creator:
+        experiment['creator_info'] = {
+            'uuid': creator['uuid'],
+            'name': creator['name'],
+            'email': creator['email']
         }
 
     # Add related experiments count
@@ -700,3 +712,106 @@ def cancel_experiment_route(uuid):
         'message': 'Experiment cancelled',
         'experiment': sanitize_response(enrich_response(updated))
     })
+
+
+# ========================================
+# Raw Idea Routes
+# ========================================
+
+@experiments_bp.route('/raw-ideas', methods=['POST'])
+@require_auth
+@rate_limit_default
+def create_new_raw_idea():
+    """Create a new raw idea."""
+    data = request.get_json()
+
+    if not data:
+        return jsonify({
+            'success': False,
+            'error': {'code': 'INVALID_REQUEST', 'message': 'Request body required'}
+        }), 400
+
+    title = data.get('title', '').strip()
+    description = data.get('description', '').strip()
+    if not title:
+        return jsonify({
+            'success': False,
+            'error': {'code': 'MISSING_FIELDS', 'message': 'Title is required'}
+        }), 400
+
+    user = getattr(g, 'user', {})
+    raw_idea = create_raw_idea(title, description, user.get('uuid'))
+
+    if not raw_idea:
+        return jsonify({
+            'success': False,
+            'error': {'code': 'CREATE_FAILED', 'message': 'Failed to create raw idea'}
+        }), 500
+
+    return jsonify({
+        'success': True,
+        'message': 'Raw idea created successfully',
+        'experiment': sanitize_response(enrich_response(raw_idea))
+    }), 201
+
+
+@experiments_bp.route('/raw-ideas', methods=['GET'])
+@require_auth
+def list_raw_ideas_route():
+    """List all raw ideas."""
+    raw_ideas = list_raw_ideas(status='ACTIVE')
+
+    return jsonify({
+        'success': True,
+        'experiments': [sanitize_response(enrich_response(ri)) for ri in raw_ideas]
+    })
+
+
+@experiments_bp.route('/<uuid>/take', methods=['POST'])
+@require_auth
+@rate_limit_default
+def take_raw_idea_route(uuid):
+    """Take a raw idea and convert it to an experiment."""
+    data = request.get_json() or {}
+
+    experiment = get_experiment_by_uuid(uuid)
+    if not experiment:
+        return jsonify({
+            'success': False,
+            'error': {'code': 'NOT_FOUND', 'message': 'Raw idea not found'}
+        }), 404
+
+    if experiment.get('current_phase') != 'RAW_IDEA':
+        return jsonify({
+            'success': False,
+            'error': {'code': 'INVALID_PHASE', 'message': 'Not a raw idea'}
+        }), 400
+
+    if experiment.get('owner'):
+        return jsonify({
+            'success': False,
+            'error': {'code': 'ALREADY_TAKEN', 'message': 'This idea has already been taken'}
+        }), 400
+
+    user = getattr(g, 'user', {})
+    user_uuid = user.get('uuid')
+
+    try:
+        updated = take_raw_idea(uuid, user_uuid, data)
+
+        if not updated:
+            return jsonify({
+                'success': False,
+                'error': {'code': 'FAILED', 'message': 'Failed to take raw idea'}
+            }), 500
+
+        return jsonify({
+            'success': True,
+            'message': 'Raw idea taken successfully. You are now the owner.',
+            'experiment': sanitize_response(enrich_response(updated))
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': {'code': 'FAILED', 'message': str(e)}
+        }), 500

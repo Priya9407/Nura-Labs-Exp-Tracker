@@ -50,11 +50,11 @@ ENV FLASK_APP=backend/app.py
 ENV FLASK_ENV=production
 
 # Expose backend port
-EXPOSE 8190
+EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8190/api/health || exit 1
+    CMD curl -f http://localhost:3000/api/health || exit 1
 
 # Start application
-CMD ["gunicorn", "-c", "gunicorn.conf.py", "--bind", "0.0.0.0:8190", "backend.app:app"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "--bind", "0.0.0.0:3000", "backend.app:app"]
